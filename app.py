@@ -69,13 +69,7 @@ def pdf_to_text(file_path):
         with pdfplumber.open(file_path) as pdf:
             text = ""
             for page in pdf.pages:
-                # Estrai il testo
                 text += page.extract_text() or ""
-                # Estrai le tabelle
-                tables = page.extract_tables()
-                for table in tables:
-                    for row in table:
-                        text += " | ".join(row) + "\n"  # Formatta la tabella come testo
             logging.debug(f"Extracted text from {file_path}: {text[:100]}...")
             return text
     except Exception as e:
@@ -85,8 +79,8 @@ def pdf_to_text(file_path):
 def initialise_llama3():
     try:
         logging.debug("Starting chatbot initialization...")
-
-        # Create chatbot prompt for generating SQL exams in Italian
+        
+        # Prompt per l'esame SQL
         create_prompt_sql = ChatPromptTemplate.from_messages(
             [
                 ("system", "Sei un insegnante universitario di database."),
@@ -101,53 +95,55 @@ def initialise_llama3():
         )
         logging.debug("SQL Prompt template created successfully.")
 
+        # Prompt per l'esame ERM
+        create_prompt_erm = ChatPromptTemplate.from_messages(
+            [
+                ("system", "Sei un insegnante universitario di database."),
+                ("user", "Ecco un esempio di esami progettazione ERM:\n\n{erm_text}\n\n"
+                         "Genera un esame finale simile con circa 11 esercizi di progettazione ERM, "
+                         "ma usa un tema diverso ogni volta. "
+                         "Il tema scelto è: {theme}. "
+                         "Scrivi solo le richieste da porre allo studente.")
+            ]
+        )
+        logging.debug("ERM Prompt template created successfully.")
+
         llama_model = Ollama(model="llama3.2")
         logging.debug("Llama model initialized.")
-
         output_parser = StrOutputParser()
         logging.debug("Output parser initialized.")
 
+        # Creazione delle pipeline per SQL e ERM
         chatbot_pipeline_sql = create_prompt_sql | llama_model | output_parser
-        logging.debug("Chatbot pipeline created successfully.")
-        return chatbot_pipeline_sql
+        chatbot_pipeline_erm = create_prompt_erm | llama_model | output_parser  # Pipeline per ERM
+        logging.debug("Chatbot pipelines created successfully.")
+
+        return chatbot_pipeline_sql, chatbot_pipeline_erm
 
     except Exception as e:
         logging.error("Failed to initialize chatbot:", exc_info=True)
         raise
 
-chatbot_pipeline_sql = initialise_llama3()
+chatbot_pipeline_sql, chatbot_pipeline_erm = initialise_llama3()
 
-# Funzione per generare il PDF con layout e font consistenti
 def generate_pdf_exam(output_text):
-    # Crea un buffer in memoria per il PDF
     pdf_buffer = BytesIO()
-
-    # Definisci il PDF
     pdf = SimpleDocTemplate(pdf_buffer, pagesize=letter)
-
-    # Aggiungi degli stili
     styles = getSampleStyleSheet()
     normal_style = styles['Normal']
     title_style = styles['Title']
 
-    # Crea gli elementi PDF
     elements = []
-
-    # Titolo
     title = Paragraph("Esame SQL/ERM Generato", title_style)
     elements.append(title)
     elements.append(Spacer(1, 12))
 
-    # Aggiungi il contenuto dell'esame
-    for paragraph in output_text.split("\n"):  # Cambiato da \n\n a \n
-        if paragraph.strip():  # Aggiungi solo se il paragrafo non è vuoto
+    for paragraph in output_text.split("\n"):
+        if paragraph.strip():
             elements.append(Paragraph(paragraph, normal_style))
-            elements.append(Spacer(1, 12))  # Aggiungi uno spazio dopo ogni esercizio
+            elements.append(Spacer(1, 12))
 
-    # Costruisci il PDF
     pdf.build(elements)
-
-    # Riavvia il buffer per la lettura
     pdf_buffer.seek(0)
     return pdf_buffer
 
@@ -174,15 +170,14 @@ def genera_esame_sql():
         output = format_output(response)
         logging.debug(f"Esame SQL generato con successo: {output}")
 
-        # Genera il PDF e restituisci il buffer
         pdf_buffer = generate_pdf_exam(output)
-        return send_file(pdf_buffer, as_attachment=True, download_name="generated_exam.pdf", mimetype='application/pdf')
+        return send_file(pdf_buffer, as_attachment=True, download_name="generated_exam_sql.pdf", mimetype='application/pdf')
 
     except Exception as e:
         logging.error(f"Errore durante la generazione dell'esame SQL: {e}", exc_info=True)
         return jsonify({"error": "Errore durante la generazione dell'esame SQL"}), 500
+
 # Route per generare l'esame ERM e convertirlo in PDF
-@app.route('/genera-esame-erm', methods=['POST'])
 @app.route('/genera-esame-erm', methods=['POST'])
 def genera_esame_erm():
     logging.debug("Received a POST request to /genera-esame-erm")
@@ -201,12 +196,13 @@ def genera_esame_erm():
         tema_casuale = random.choice(temi_sql)
         logging.debug(f"Tema ERM scelto: {tema_casuale}")
 
-        # Invoca il chatbot per generare l'esame ERM (simile alla generazione SQL)
-        # (Il resto del codice per l'esame ERM rimane invariato...)
+        # Invocazione per generare l'esame ERM
+        response = chatbot_pipeline_erm.invoke({'erm_text': erm_text, 'theme': tema_casuale})  # Utilizza la pipeline per ERM
+        output = format_output(response)
+        logging.debug(f"Esame ERM generato con successo: {output}")
 
-        # Genera il PDF e restituisci il buffer
         pdf_buffer = generate_pdf_exam(output)
-        return send_file(pdf_buffer, as_attachment=True, download_name="generated_erm_exam.pdf", mimetype='application/pdf')
+        return send_file(pdf_buffer, as_attachment=True, download_name="generated_exam_erm.pdf", mimetype='application/pdf')
 
     except Exception as e:
         logging.error(f"Errore durante la generazione dell'esame ERM: {e}", exc_info=True)
