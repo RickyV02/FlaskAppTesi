@@ -8,16 +8,22 @@ from flask_cors import CORS
 from langchain_core.output_parsers import StrOutputParser
 import random
 from reportlab.lib.pagesizes import letter
-from reportlab.lib import colors
-from reportlab.lib.styles import getSampleStyleSheet
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
 from reportlab.lib.units import inch
 from io import BytesIO
+from reportlab.pdfbase.ttfonts import TTFont
+from reportlab.pdfbase import pdfmetrics
+from datetime import datetime
+from functools import wraps
 
 logging.basicConfig(level=logging.DEBUG)
 
 app = Flask(__name__)
 CORS(app)
+
+# Carica il font DejaVu Sans per supportare meglio i simboli Unicode
+pdfmetrics.registerFont(TTFont('DejaVuSans', 'DejaVuSans.ttf'))
 
 # Variabile globale per i temi SQL
 temi_sql = [
@@ -64,33 +70,46 @@ temi_sql = [
     "Sistema di tracciamento dei clienti per una startup"
 ]
 
+# Token fisso, da utilizzare per la verifica
+FIXED_TOKEN = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiaWF0IjoxNTE2MjM5MDIyfQ.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c'
+
 def pdf_to_text(file_path):
     try:
         with pdfplumber.open(file_path) as pdf:
-            text = ""
-            for page in pdf.pages:
-                text += page.extract_text() or ""
+            text = "".join(page.extract_text() or "" for page in pdf.pages)
             logging.debug(f"Extracted text from {file_path}: {text[:100]}...")
             return text
     except Exception as e:
         logging.error(f"Error extracting text from {file_path}: {e}", exc_info=True)
         return ""
 
+def token_required(f):
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        token = request.headers.get('Authorization')
+        if not token or token != f'Bearer {FIXED_TOKEN}':
+            logging.warning("Access denied: Invalid token")
+            return jsonify({"error": "Access denied: Invalid token"}), 403
+        return f(*args, **kwargs)
+    return decorated_function
+
 def initialise_llama3():
     try:
         logging.debug("Starting chatbot initialization...")
-        
+
         # Prompt per l'esame SQL
         create_prompt_sql = ChatPromptTemplate.from_messages(
             [
                 ("system", "Sei un insegnante universitario di database."),
                 ("user", "Ecco un esempio di esami di query SQL:\n\n{sql_text}\n\n"
-                         "Genera un esame finale simile con circa 11 esercizi SQL, "
+                         "Genera un esame finale simile con 11 esercizi SQL, "
                          "ma usa un tema diverso ogni volta. "
                          "Il tema scelto è: {theme}. "
-                         "Non scrivere le query, procedure o trigger, ma solo la richiesta da porre allo studente. "
+                         "Non scrivere le query, procedure o trigger, ma limitati solo alle richiesta da porre allo studente senza commenti iniziali o finali. "
                          "Inserisci nel testo anche dati tramite insert per testare le query. "
-                         "Includi almeno un trigger come ultima domanda.")
+                         "Includi almeno un trigger come ultima domanda."
+                         "Non mettere note"
+                )
             ]
         )
         logging.debug("SQL Prompt template created successfully.")
@@ -99,13 +118,18 @@ def initialise_llama3():
         create_prompt_erm = ChatPromptTemplate.from_messages(
             [
                 ("system", "Sei un insegnante universitario di database."),
-                ("user", "Ecco un esempio di esami progettazione ERM:\n\n{erm_text}\n\n"
-                         "Genera un esame finale simile con circa 11 esercizi di progettazione ERM, "
+                ("user", "Ecco un esempio di esami di progettazione ERM:\n\n{erm_text}\n\n"
+                         "Genera un esame finale simile, "
                          "ma usa un tema diverso ogni volta. "
                          "Il tema scelto è: {theme}. "
-                         "Scrivi solo le richieste da porre allo studente.")
+                         "limitati a scrivere solo il testo dell'esame e le richiesta da porre allo studente senza commenti iniziali o finali. "
+                         "Non svolgere gli esercizi. "
+                         "L'esame deve sempre avere: Le operazioni, la tabella delle operazioni e la tabella dei volumi. Queste due tabelle devono essere separate tra loro."
+                        "Non mettere note"
+                )
             ]
         )
+        
         logging.debug("ERM Prompt template created successfully.")
 
         llama_model = Ollama(model="llama3.2")
@@ -130,13 +154,38 @@ def generate_pdf_exam(output_text):
     pdf_buffer = BytesIO()
     pdf = SimpleDocTemplate(pdf_buffer, pagesize=letter)
     styles = getSampleStyleSheet()
-    normal_style = styles['Normal']
+
+    # Definisci un nuovo stile che utilizza DejaVu Sans
+    normal_style = ParagraphStyle(
+        'NormalWithSymbols',
+        parent=styles['Normal'],
+        fontName='DejaVuSans',
+        encoding='UTF-8'
+    )
+
     title_style = styles['Title']
 
     elements = []
-    title = Paragraph("Esame SQL/ERM Generato", title_style)
+
+    # Ottieni la data corrente e formatta il titolo
+    current_date = datetime.now().strftime("%d/%m/%Y")
+    title_text = f"Esame di Database - {current_date}"
+    title = Paragraph(title_text, title_style)
+
     elements.append(title)
     elements.append(Spacer(1, 12))
+
+    fields_style = styles['Normal']  # Puoi usare uno stile diverso se desideri
+    elements.append(Paragraph("Nome: _______________________", fields_style))
+    elements.append(Spacer(1, 12))
+    elements.append(Paragraph("Cognome: _______________________", fields_style))
+    elements.append(Spacer(1, 12))
+    elements.append(Paragraph("Matricola: _______________________", fields_style))
+    elements.append(Spacer(1, 12))
+    
+    
+    # Usa i simboli Unicode per le frecce
+    output_text = output_text.replace("->", "→").replace("<-", "←")
 
     for paragraph in output_text.split("\n"):
         if paragraph.strip():
@@ -149,6 +198,7 @@ def generate_pdf_exam(output_text):
 
 # Route per generare l'esame SQL e convertirlo in PDF
 @app.route('/genera-esame-sql', methods=['POST'])
+@token_required
 def genera_esame_sql():
     logging.debug("Received a POST request to /genera-esame-sql")
     sql_directory = 'uploads/sql'
@@ -179,6 +229,7 @@ def genera_esame_sql():
 
 # Route per generare l'esame ERM e convertirlo in PDF
 @app.route('/genera-esame-erm', methods=['POST'])
+@token_required
 def genera_esame_erm():
     logging.debug("Received a POST request to /genera-esame-erm")
     erm_directory = 'uploads/erm'
