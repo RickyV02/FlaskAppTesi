@@ -22,7 +22,7 @@ logging.basicConfig(level=logging.DEBUG)
 app = Flask(__name__)
 CORS(app)
 
-# Carica il font DejaVu Sans per supportare meglio i simboli Unicode
+#Per caricare i font
 pdfmetrics.registerFont(TTFont('DejaVuSans', 'DejaVuSans.ttf'))
 
 # Variabile globale per i temi SQL
@@ -109,6 +109,7 @@ def initialise_llama3():
                          "Inserisci nel testo anche dati tramite insert per testare le query. "
                          "Includi almeno un trigger come ultima domanda."
                          "Non mettere note"
+                         "Assicurati che il testo dell'esame sia coerente con il tema scelto."
                 )
             ]
         )
@@ -125,37 +126,49 @@ def initialise_llama3():
                          "limitati a scrivere solo il testo dell'esame e le richiesta da porre allo studente senza commenti iniziali o finali. "
                          "Non svolgere gli esercizi. "
                          "L'esame deve sempre avere: Le operazioni, la tabella delle operazioni e la tabella dei volumi. Queste due tabelle devono essere separate tra loro."
-                        "Non mettere note"
+                         "Non mettere note"
+                         "Assicurati che il testo dell'esame sia coerente con il tema scelto."
+                )
+            ]
+        )
+        
+        create_prompt_sql_solution = ChatPromptTemplate.from_messages(
+            [
+                ("system", "Sei un insegnante universitario di database."),
+                ("user", "Questo è l'esame SQL:\n\n{sql_text}\n\n"
+                         "Genera la soluzione completa per ogni esercizio dell'esame."
+                         "Assicurati che la soluzione sia dettagliata e corretta."
+                         "Assicurati di scrivere la soluzione di 11 esercizi"
+                         "Usa la sintassi di MYSQL"
                 )
             ]
         )
         
         logging.debug("ERM Prompt template created successfully.")
 
-        llama_model = Ollama(model="llama3.2")
+        llama_model = Ollama(model="llama3.1:8b")
         logging.debug("Llama model initialized.")
         output_parser = StrOutputParser()
         logging.debug("Output parser initialized.")
 
         # Creazione delle pipeline per SQL e ERM
         chatbot_pipeline_sql = create_prompt_sql | llama_model | output_parser
-        chatbot_pipeline_erm = create_prompt_erm | llama_model | output_parser  # Pipeline per ERM
+        chatbot_pipeline_erm = create_prompt_erm | llama_model | output_parser 
+        chatbot_pipeline_sql_solution = create_prompt_sql_solution | llama_model | output_parser
         logging.debug("Chatbot pipelines created successfully.")
 
-        return chatbot_pipeline_sql, chatbot_pipeline_erm
+        return chatbot_pipeline_sql, chatbot_pipeline_erm, chatbot_pipeline_sql_solution
 
     except Exception as e:
         logging.error("Failed to initialize chatbot:", exc_info=True)
         raise
 
-chatbot_pipeline_sql, chatbot_pipeline_erm = initialise_llama3()
+chatbot_pipeline_sql, chatbot_pipeline_erm, chatbot_pipeline_sql_solution = initialise_llama3()
 
 def generate_pdf_exam(output_text):
     pdf_buffer = BytesIO()
     pdf = SimpleDocTemplate(pdf_buffer, pagesize=letter)
     styles = getSampleStyleSheet()
-
-    # Definisci un nuovo stile che utilizza DejaVu Sans
     normal_style = ParagraphStyle(
         'NormalWithSymbols',
         parent=styles['Normal'],
@@ -167,7 +180,7 @@ def generate_pdf_exam(output_text):
 
     elements = []
 
-    # Ottieni la data corrente e formatta il titolo
+    # Ottieni la data corrente e formatta il titolo per metterlo all'inizio dell'esame
     current_date = datetime.now().strftime("%d/%m/%Y")
     title_text = f"Esame di Database - {current_date}"
     title = Paragraph(title_text, title_style)
@@ -175,16 +188,14 @@ def generate_pdf_exam(output_text):
     elements.append(title)
     elements.append(Spacer(1, 12))
 
-    fields_style = styles['Normal']  # Puoi usare uno stile diverso se desideri
-    elements.append(Paragraph("Nome: _______________________", fields_style))
-    elements.append(Spacer(1, 12))
-    elements.append(Paragraph("Cognome: _______________________", fields_style))
-    elements.append(Spacer(1, 12))
-    elements.append(Paragraph("Matricola: _______________________", fields_style))
-    elements.append(Spacer(1, 12))
+    #*fields_style = styles['Normal']
+    #elements.append(Paragraph("Nome: _______________________", fields_style))
+    #elements.append(Spacer(1, 12))
+    #elements.append(Paragraph("Cognome: _______________________", fields_style))
+    #elements.append(Spacer(1, 12))
+    #elements.append(Paragraph("Matricola: _______________________", fields_style))
+    #elements.append(Spacer(1, 12))
     
-    
-    # Usa i simboli Unicode per le frecce
     output_text = output_text.replace("->", "→").replace("<-", "←")
 
     for paragraph in output_text.split("\n"):
@@ -197,6 +208,7 @@ def generate_pdf_exam(output_text):
     return pdf_buffer
 
 # Route per generare l'esame SQL e convertirlo in PDF
+
 @app.route('/genera-esame-sql', methods=['POST'])
 @token_required
 def genera_esame_sql():
@@ -220,14 +232,16 @@ def genera_esame_sql():
         output = format_output(response)
         logging.debug(f"Esame SQL generato con successo: {output}")
 
+        # Crea un nuovo buffer per ogni chiamata
         pdf_buffer = generate_pdf_exam(output)
-        return send_file(pdf_buffer, as_attachment=True, download_name="generated_exam_sql.pdf", mimetype='application/pdf')
+        filename = "EsameSQLGenerato"
+        
+        return send_file(pdf_buffer, as_attachment=True, download_name=filename, mimetype='application/pdf')
 
     except Exception as e:
         logging.error(f"Errore durante la generazione dell'esame SQL: {e}", exc_info=True)
         return jsonify({"error": "Errore durante la generazione dell'esame SQL"}), 500
 
-# Route per generare l'esame ERM e convertirlo in PDF
 @app.route('/genera-esame-erm', methods=['POST'])
 @token_required
 def genera_esame_erm():
@@ -247,17 +261,64 @@ def genera_esame_erm():
         tema_casuale = random.choice(temi_sql)
         logging.debug(f"Tema ERM scelto: {tema_casuale}")
 
-        # Invocazione per generare l'esame ERM
-        response = chatbot_pipeline_erm.invoke({'erm_text': erm_text, 'theme': tema_casuale})  # Utilizza la pipeline per ERM
+        response = chatbot_pipeline_erm.invoke({'erm_text': erm_text, 'theme': tema_casuale})  
         output = format_output(response)
         logging.debug(f"Esame ERM generato con successo: {output}")
 
+        # Crea un nuovo buffer per ogni chiamata
         pdf_buffer = generate_pdf_exam(output)
-        return send_file(pdf_buffer, as_attachment=True, download_name="generated_exam_erm.pdf", mimetype='application/pdf')
+        filename = "EsameERMGenerato"
+        return send_file(pdf_buffer, as_attachment=True, download_name=filename, mimetype='application/pdf')
 
     except Exception as e:
         logging.error(f"Errore durante la generazione dell'esame ERM: {e}", exc_info=True)
         return jsonify({"error": "Errore durante la generazione dell'esame ERM"}), 500
+
+@app.route('/genera-soluzione-sql', methods=['POST'])
+@token_required
+def genera_soluzione_sql():
+    logging.debug("Received a POST request to /genera-soluzione-sql")
+    sql_directory = 'uploads/sql'
+
+    try:
+        # Crea la directory se non esiste
+        if not os.path.exists(sql_directory):
+            os.makedirs(sql_directory)
+
+        # Controlla se il file è stato caricato
+        if 'file' not in request.files:
+            return jsonify({"error": "Nessun file caricato"}), 400
+
+        file = request.files['file']  # Ottiene il file caricato
+
+        if file.filename == '':
+            return jsonify({"error": "Nome del file non valido"}), 400
+
+        # Salva il file caricato
+        file_path = os.path.join(sql_directory, file.filename)
+        file.save(file_path)
+        logging.debug(f"File salvato con successo: {file_path}")
+
+        # Estrai il testo dall'esame SQL PDF
+        sql_text = pdf_to_text(file_path)
+        logging.debug(f"Testo estratto dall'esame SQL: {sql_text[:100]}...")
+
+        logging.debug("Generazione della soluzione SQL in corso...")
+
+        # Invoca il chatbot per generare la soluzione SQL
+        response = chatbot_pipeline_sql_solution.invoke({'sql_text': sql_text})
+        output = format_output(response)
+        logging.debug(f"Soluzione SQL generata con successo: {output}")
+
+        # Crea un nuovo buffer per ogni chiamata
+        pdf_buffer = generate_pdf_exam(output)
+        filename = "SoluzioneSQLGenerata"
+
+        return send_file(pdf_buffer, as_attachment=True, download_name=filename, mimetype='application/pdf')
+
+    except Exception as e:
+        logging.error(f"Errore durante la generazione della soluzione SQL: {e}", exc_info=True)
+        return jsonify({"error": "Errore durante la generazione della soluzione SQL"}), 500
 
 def format_output(response):
     formatted_output = response.strip()
