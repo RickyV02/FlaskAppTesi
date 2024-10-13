@@ -234,8 +234,9 @@ def genera_esame_sql():
 
         # Crea un nuovo buffer per ogni chiamata
         pdf_buffer = generate_pdf_exam(output)
-        filename = "EsameSQLGenerato"
-        
+        current_date = datetime.now().strftime("%Y%m%d")
+        filename = f"Esame_SQL{current_date}.pdf"
+
         return send_file(pdf_buffer, as_attachment=True, download_name=filename, mimetype='application/pdf')
 
     except Exception as e:
@@ -261,13 +262,17 @@ def genera_esame_erm():
         tema_casuale = random.choice(temi_sql)
         logging.debug(f"Tema ERM scelto: {tema_casuale}")
 
-        response = chatbot_pipeline_erm.invoke({'erm_text': erm_text, 'theme': tema_casuale})  
+        response = chatbot_pipeline_erm.invoke({'erm_text': erm_text, 'theme': tema_casuale})
         output = format_output(response)
         logging.debug(f"Esame ERM generato con successo: {output}")
 
         # Crea un nuovo buffer per ogni chiamata
         pdf_buffer = generate_pdf_exam(output)
-        filename = "EsameERMGenerato"
+
+        # Nome dinamico basato sulla data
+        current_date = datetime.now().strftime("%Y%m%d")
+        filename = f"Esame_ERM{current_date}.pdf"
+
         return send_file(pdf_buffer, as_attachment=True, download_name=filename, mimetype='application/pdf')
 
     except Exception as e:
@@ -312,13 +317,17 @@ def genera_soluzione_sql():
 
         # Crea un nuovo buffer per ogni chiamata
         pdf_buffer = generate_pdf_exam(output)
-        filename = "SoluzioneSQLGenerata"
+
+        # Nome dinamico basato sulla data
+        current_date = datetime.now().strftime("%Y%m%d")
+        filename = f"Soluzione_SQL{current_date}.pdf"
 
         return send_file(pdf_buffer, as_attachment=True, download_name=filename, mimetype='application/pdf')
 
     except Exception as e:
         logging.error(f"Errore durante la generazione della soluzione SQL: {e}", exc_info=True)
         return jsonify({"error": "Errore durante la generazione della soluzione SQL"}), 500
+
 
 def format_output(response):
     formatted_output = response.strip()
