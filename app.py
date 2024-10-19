@@ -232,7 +232,6 @@ def genera_esame_sql():
         output = format_output(response)
         logging.debug(f"Esame SQL generato con successo: {output}")
 
-        # Crea un nuovo buffer per ogni chiamata
         pdf_buffer = generate_pdf_exam(output)
         current_date = datetime.now().strftime("%Y%m%d")
         filename = f"Esame_SQL{current_date}.pdf"
@@ -266,10 +265,8 @@ def genera_esame_erm():
         output = format_output(response)
         logging.debug(f"Esame ERM generato con successo: {output}")
 
-        # Crea un nuovo buffer per ogni chiamata
         pdf_buffer = generate_pdf_exam(output)
 
-        # Nome dinamico basato sulla data
         current_date = datetime.now().strftime("%Y%m%d")
         filename = f"Esame_ERM{current_date}.pdf"
 
@@ -286,11 +283,9 @@ def genera_soluzione_sql():
     sql_directory = 'uploads/sql'
 
     try:
-        # Crea la directory se non esiste
         if not os.path.exists(sql_directory):
             os.makedirs(sql_directory)
 
-        # Controlla se il file è stato caricato
         if 'file' not in request.files:
             return jsonify({"error": "Nessun file caricato"}), 400
 
@@ -298,27 +293,17 @@ def genera_soluzione_sql():
 
         if file.filename == '':
             return jsonify({"error": "Nome del file non valido"}), 400
-
-        # Salva il file caricato
-        file_path = os.path.join(sql_directory, file.filename)
-        file.save(file_path)
-        logging.debug(f"File salvato con successo: {file_path}")
-
-        # Estrai il testo dall'esame SQL PDF
         sql_text = pdf_to_text(file_path)
         logging.debug(f"Testo estratto dall'esame SQL: {sql_text[:100]}...")
 
         logging.debug("Generazione della soluzione SQL in corso...")
 
-        # Invoca il chatbot per generare la soluzione SQL
         response = chatbot_pipeline_sql_solution.invoke({'sql_text': sql_text})
         output = format_output(response)
         logging.debug(f"Soluzione SQL generata con successo: {output}")
 
-        # Crea un nuovo buffer per ogni chiamata
         pdf_buffer = generate_pdf_exam(output)
 
-        # Nome dinamico basato sulla data
         current_date = datetime.now().strftime("%Y%m%d")
         filename = f"Soluzione_SQL{current_date}.pdf"
 
