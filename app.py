@@ -70,7 +70,6 @@ temi_sql = [
     "Sistema di tracciamento dei clienti per una startup"
 ]
 
-# Token fisso, da utilizzare per la verifica
 FIXED_TOKEN = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiaWF0IjoxNTE2MjM5MDIyfQ.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c'
 
 def pdf_to_text(file_path):
@@ -96,8 +95,6 @@ def token_required(f):
 def initialise_llama3():
     try:
         logging.debug("Starting chatbot initialization...")
-
-        # Prompt per l'esame SQL
         create_prompt_sql = ChatPromptTemplate.from_messages(
             [
                 ("system", "Sei un insegnante universitario di database."),
@@ -115,7 +112,6 @@ def initialise_llama3():
         )
         logging.debug("SQL Prompt template created successfully.")
 
-        # Prompt per l'esame ERM
         create_prompt_erm = ChatPromptTemplate.from_messages(
             [
                 ("system", "Sei un insegnante universitario di database."),
@@ -151,7 +147,6 @@ def initialise_llama3():
         output_parser = StrOutputParser()
         logging.debug("Output parser initialized.")
 
-        # Creazione delle pipeline per SQL e ERM
         chatbot_pipeline_sql = create_prompt_sql | llama_model | output_parser
         chatbot_pipeline_erm = create_prompt_erm | llama_model | output_parser 
         chatbot_pipeline_sql_solution = create_prompt_sql_solution | llama_model | output_parser
@@ -180,7 +175,6 @@ def generate_pdf_exam(output_text):
 
     elements = []
 
-    # Ottieni la data corrente e formatta il titolo per metterlo all'inizio dell'esame
     current_date = datetime.now().strftime("%d/%m/%Y")
     title_text = f"Esame di Database - {current_date}"
     title = Paragraph(title_text, title_style)
@@ -207,7 +201,6 @@ def generate_pdf_exam(output_text):
     pdf_buffer.seek(0)
     return pdf_buffer
 
-# Route per generare l'esame SQL e convertirlo in PDF
 
 @app.route('/genera-esame-sql', methods=['POST'])
 @token_required
