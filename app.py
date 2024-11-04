@@ -22,10 +22,10 @@ logging.basicConfig(level=logging.DEBUG)
 app = Flask(__name__)
 CORS(app)
 
-#Per caricare i font
+
 pdfmetrics.registerFont(TTFont('DejaVuSans', 'DejaVuSans.ttf'))
 
-# Variabile globale per i temi SQL
+
 temi_sql = [
     "Gestione di un sistema di e-commerce",
     "Sistema di prenotazione per voli aerei",
@@ -282,7 +282,7 @@ def genera_soluzione_sql():
         if 'file' not in request.files:
             return jsonify({"error": "Nessun file caricato"}), 400
 
-        file = request.files['file']  # Ottiene il file caricato
+        file = request.files['file']  
 
         if file.filename == '':
             return jsonify({"error": "Nome del file non valido"}), 400
