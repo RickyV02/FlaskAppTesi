@@ -273,20 +273,21 @@ def genera_esame_erm():
 @token_required
 def genera_soluzione_sql():
     logging.debug("Received a POST request to /genera-soluzione-sql")
-    sql_directory = 'uploads/sql'
-
+    
     try:
-        if not os.path.exists(sql_directory):
-            os.makedirs(sql_directory)
-
         if 'file' not in request.files:
             return jsonify({"error": "Nessun file caricato"}), 400
 
-        file = request.files['file']  
+        file = request.files['file']
 
         if file.filename == '':
             return jsonify({"error": "Nome del file non valido"}), 400
-        sql_text = pdf_to_text(file_path)
+
+        file_buffer = file.stream.read()
+
+        with pdfplumber.open(BytesIO(file_buffer)) as pdf:
+            sql_text = "".join(page.extract_text() or "" for page in pdf.pages)
+        
         logging.debug(f"Testo estratto dall'esame SQL: {sql_text[:100]}...")
 
         logging.debug("Generazione della soluzione SQL in corso...")
@@ -296,7 +297,6 @@ def genera_soluzione_sql():
         logging.debug(f"Soluzione SQL generata con successo: {output}")
 
         pdf_buffer = generate_pdf_exam(output)
-
         current_date = datetime.now().strftime("%Y%m%d")
         filename = f"Soluzione_SQL{current_date}.pdf"
 
